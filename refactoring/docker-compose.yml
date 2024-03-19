@@ -1,0 +1,10 @@
+version: '3.8'
+services:
+  recording:
+    build:
+      context: .
+      dockerfile: Recording.Dockerfile
+    volumes:
+      - ./recordings:/app/recordings
+    devices:
+      - /dev/snd:/dev/snd
