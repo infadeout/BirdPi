@@ -5,10 +5,11 @@ import os
 from datetime import datetime
 
 # Configuration
-RECORDING_LENGTH = 15  # seconds
-SAMPLE_RATE = 48000  # sample rate
-FILENAME_FORMAT = "{date}-birdnet-{time}.wav"
-RECS_DIR = "./recordings"  # replace with your directory
+# Get environment variables or set to default values
+RECORDING_LENGTH = int(os.environ.get('RECORDING_LENGTH', 15))
+SAMPLE_RATE = int(os.environ.get('SAMPLE_RATE', 48000))
+FILENAME_FORMAT = os.environ.get('FILENAME_FORMAT', "{date}-birdnet-{time}.wav")
+RECS_DIR = os.environ.get('RECS_DIR', "./recordings")
 
 # Create the directory if it doesn't exist
 os.makedirs(RECS_DIR, exist_ok=True)

@@ -8,3 +8,8 @@ services:
       - ./recordings:/app/recordings
     devices:
       - /dev/snd:/dev/snd
+    environment:
+      - RECORDING_LENGTH=15
+      - SAMPLE_RATE=48000
+      - FILENAME_FORMAT="{date}-birdnet-{time}.wav"
+      - RECS_DIR="./recordings"  
