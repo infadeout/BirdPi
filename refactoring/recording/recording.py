@@ -5,6 +5,8 @@ import os
 from datetime import datetime
 from typing import Optional
 import glob
+import logging
+import sys
 
 # Configuration
 # Get environment variables or set to default values
@@ -13,6 +15,14 @@ SAMPLE_RATE = int(os.environ.get('SAMPLE_RATE', 48000))
 FILENAME_FORMAT = os.environ.get('FILENAME_FORMAT', "{date}-birdnet-{time}.wav")
 RECS_DIR = os.environ.get('RECS_DIR', "./recordings")
 MAX_RECORDS = int(os.environ.get('MAX_RECORDS', 0))  # 0 means unlimited
+
+# Set up logging configuration at the start of the file
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S',
+    stream=sys.stdout
+)
 
 def cleanup_old_recordings():
     if MAX_RECORDS <= 0:
@@ -36,32 +46,31 @@ device_info = sd.query_devices(sd.default.device, 'input')
 CHANNELS = device_info['max_input_channels']
 
 while True:
-    # List to hold audio data
     audio_data = []
-
-    # Callback function for the stream
+    
     def callback(indata, frames, time, status):
-        # This function will be called by the stream for every chunk of audio
+        if status:
+            logging.warning(f"Stream callback status: {status}")
         vol_norm = np.linalg.norm(indata) * 10
-        print("|" * int(vol_norm))  # Print a simple visualization of the volume
-        audio_data.append(indata.copy())  # Append the audio data to the list
+        print("|" * int(vol_norm))
+        audio_data.append(indata.copy())
 
-    # Create a stream
+    logging.info("Starting new recording session...")
     with sd.InputStream(callback=callback, channels=CHANNELS, samplerate=SAMPLE_RATE) as stream:
-        # Start the stream
         stream.start()
-
-        # Record for the specified duration
+        logging.info(f"Recording for {RECORDING_LENGTH} seconds...")
         sd.sleep(RECORDING_LENGTH * 1000)
 
-    # Convert the list of arrays into a single array
     audio_data = np.concatenate(audio_data)
-
-    # Generate the filename
-    filename = FILENAME_FORMAT.format(date=datetime.now().strftime("%Y-%m-%d"), time=datetime.now().strftime("%H-%M-%S"))
-
-    # Cleanup old recordings before saving new one
+    filename = FILENAME_FORMAT.format(
+        date=datetime.now().strftime("%Y-%m-%d"), 
+        time=datetime.now().strftime("%H-%M-%S")
+    )
+    
+    logging.info("Cleaning up old recordings...")
     cleanup_old_recordings()
     
-    # Save the audio data to a .wav file
-    sf.write(os.path.join(RECS_DIR, filename), audio_data, SAMPLE_RATE)
+    output_path = os.path.join(RECS_DIR, filename)
+    logging.info(f"Saving recording to {output_path}")
+    sf.write(output_path, audio_data, SAMPLE_RATE, format='WAV')
+    logging.info("Recording saved successfully")

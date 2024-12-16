@@ -13,6 +13,7 @@ services:
       - SAMPLE_RATE=48000
       - FILENAME_FORMAT={date}-birdnet-{time}.wav
       - RECS_DIR=/app/recordings
+      - MAX_RECORDS=10  # Keep only 10 latest recordings
 
   tensorflow:
     build:
