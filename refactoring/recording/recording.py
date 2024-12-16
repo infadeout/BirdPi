@@ -41,8 +41,12 @@ def cleanup_old_recordings():
 # Create the directory if it doesn't exist
 os.makedirs(RECS_DIR, exist_ok=True)
 
+# List all ALSA devices
+devices = sd.query_devices()
+logging.info(f"Available audio devices on Raspberry Pi:\n{devices}")
 # Get the number of channels from the default device
 device_info = sd.query_devices(sd.default.device, 'input')
+logging.info(f"Using input device:\n{device_info}")
 CHANNELS = device_info['max_input_channels']
 
 while True:
