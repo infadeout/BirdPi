@@ -3,6 +3,8 @@ import soundfile as sf
 import numpy as np
 import os
 from datetime import datetime
+from typing import Optional
+import glob
 
 # Configuration
 # Get environment variables or set to default values
@@ -10,6 +12,21 @@ RECORDING_LENGTH = int(os.environ.get('RECORDING_LENGTH', 15))
 SAMPLE_RATE = int(os.environ.get('SAMPLE_RATE', 48000))
 FILENAME_FORMAT = os.environ.get('FILENAME_FORMAT', "{date}-birdnet-{time}.wav")
 RECS_DIR = os.environ.get('RECS_DIR', "./recordings")
+MAX_RECORDS = int(os.environ.get('MAX_RECORDS', 0))  # 0 means unlimited
+
+def cleanup_old_recordings():
+    if MAX_RECORDS <= 0:
+        return
+        
+    # Get list of wav files sorted by creation time
+    files = glob.glob(os.path.join(RECS_DIR, "*.wav"))
+    files.sort(key=os.path.getctime)
+    
+    # Remove oldest files if exceed max
+    while len(files) >= MAX_RECORDS:
+        oldest_file = files.pop(0)
+        os.remove(oldest_file)
+        print(f"Removed old recording: {oldest_file}")
 
 # Create the directory if it doesn't exist
 os.makedirs(RECS_DIR, exist_ok=True)
@@ -43,5 +60,8 @@ while True:
     # Generate the filename
     filename = FILENAME_FORMAT.format(date=datetime.now().strftime("%Y-%m-%d"), time=datetime.now().strftime("%H-%M-%S"))
 
+    # Cleanup old recordings before saving new one
+    cleanup_old_recordings()
+    
     # Save the audio data to a .wav file
     sf.write(os.path.join(RECS_DIR, filename), audio_data, SAMPLE_RATE)
