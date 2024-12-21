@@ -14,13 +14,50 @@ services:
       - FILENAME_FORMAT={date}-birdnet-{time}.wav
       - RECS_DIR=/app/recordings
       - MAX_RECORDS=1  # Keep only 10 latest recordings
-
-  tensorflow:
+  analyzer:
     build:
       context: .
       dockerfile: TensorFlow.Dockerfile
     volumes:
       - recordings:/app/recordings
+      - processed:/app/processed
+    environment:
+      - LATITUDE=${LATITUDE}
+      - LONGITUDE=${LONGITUDE}
+    depends_on:
+      - recording
+
+server:
+  build:
+    context: .
+    dockerfile: Server.Dockerfile
+  volumes:
+    - ./model:/app/model:ro
+    - database:/app/database
+  ports:
+    - "5050:5050"
+  depends_on:
+    - database
+  healthcheck:
+    test: ["CMD", "nc", "-z", "localhost", "5050"]
+    interval: 30s
+    timeout: 10s
+    retries: 3
+ 
+  database:
+    build:
+      context: .
+      dockerfile: Database.Dockerfile
+    volumes:
+      - db-data:/data
+    healthcheck:
+      test: ["CMD", "sqlite3", "/data/birds.db", "SELECT 1"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
 
 volumes:
-  recordings:  
+  recordings:
+  processed:  
+  model:
+  database:
