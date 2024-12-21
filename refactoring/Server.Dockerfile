@@ -1,34 +1,45 @@
-# Build arguments and environment variables
-ARG MODEL_FILE=BirdNET_GLOBAL_6K_V2.4_Model_FP16.tflite
-ARG MODEL_DIR=/app/model
-ARG DB_DIR=/app/database
+FROM python:3.8-slim-buster
 
-# Set environment variables using ARGs
+WORKDIR /app
+
+ARG MODEL_FILE=BirdNET_GLOBAL_6K_V2.4_Model_FP16.tflite
+ARG LABELS_FILE=labels_lang.txt
+ARG MODEL_DIR=/app/model
+ARG DEBIAN_FRONTEND=noninteractive
+
 ENV MODEL_PATH=${MODEL_DIR}/${MODEL_FILE}
-ENV LABELS_PATH=${MODEL_DIR}/labels.txt
-ENV DB_PATH=${DB_DIR}/birds.db
+ENV LABELS_PATH=${MODEL_DIR}/${LABELS_FILE}
 ENV PORT=5050
 ENV SERVER=0.0.0.0
 
-# Install system dependencies
+# Install system dependencies including HDF5
 RUN apt-get update && apt-get install -y \
-    sqlite3 \
     python3-pip \
     libsndfile1 \
+    pkg-config \
+    libhdf5-dev \
+    && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Create directories using ARGs
-RUN mkdir -p ${MODEL_DIR} ${DB_DIR}
+# Create model directory
+RUN mkdir -p ${MODEL_DIR}
 
-# Copy server code and model using ARGs
+# Copy server code and model
 COPY ./recording/server.py /app/
 COPY ./model/${MODEL_FILE} ${MODEL_PATH}
-COPY ./model/labels.txt ${MODEL_DIR}/
+COPY ./model/${LABELS_FILE} ${LABELS_PATH}
 
-# Install Python packages
-RUN pip install numpy librosa tflite-runtime soundfile
+# Install Python packages in correct order
+RUN pip install --no-cache-dir \
+    numpy \
+    h5py \
+    && pip install --no-cache-dir \
+    librosa \
+    tflite-runtime \
+    soundfile \
+    tzlocal \
+    tensorflow
 
-# Expose port using existing ENV
 EXPOSE ${PORT}
 
 CMD ["python", "server.py"]

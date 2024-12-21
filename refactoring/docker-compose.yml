@@ -27,23 +27,22 @@ services:
     depends_on:
       - recording
 
-server:
-  build:
-    context: .
-    dockerfile: Server.Dockerfile
-  volumes:
-    - ./model:/app/model:ro
-    - database:/app/database
-  ports:
-    - "5050:5050"
-  depends_on:
-    - database
-  healthcheck:
-    test: ["CMD", "nc", "-z", "localhost", "5050"]
-    interval: 30s
-    timeout: 10s
-    retries: 3
- 
+  server:
+    build:
+      context: .
+      dockerfile: Server.Dockerfile
+    volumes:
+      - ./model:/app/model:ro
+    ports:
+      - "5050:5050"
+    depends_on:
+      - database
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "5050"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
   database:
     build:
       context: .
@@ -60,4 +59,4 @@ volumes:
   recordings:
   processed:  
   model:
-  database:
+  db-data:
