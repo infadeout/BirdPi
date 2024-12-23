@@ -1,4 +1,4 @@
-FROM python:3.8-slim-buster
+FROM --platform=linux/arm64/v8 python:3.8-slim-buster
 
 WORKDIR /app
 
@@ -12,34 +12,31 @@ ENV LABELS_PATH=${MODEL_DIR}/${LABELS_FILE}
 ENV PORT=5050
 ENV SERVER=0.0.0.0
 
-# Install system dependencies including HDF5
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
     python3-pip \
     libsndfile1 \
-    pkg-config \
-    libhdf5-dev \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 # Create model directory
 RUN mkdir -p ${MODEL_DIR}
 
-# Copy server code and model
+# Copy server code
 COPY ./recording/server.py /app/
 COPY ./model/${MODEL_FILE} ${MODEL_PATH}
 COPY ./model/${LABELS_FILE} ${LABELS_PATH}
 
-# Install Python packages in correct order
+
+# Install Python packages
 RUN pip install --no-cache-dir \
     numpy \
-    h5py \
-    && pip install --no-cache-dir \
     librosa \
     tflite-runtime \
     soundfile \
-    tzlocal \
-    tensorflow
+    tzlocal
 
 EXPOSE ${PORT}
 
-CMD ["python", "server.py"]
+#CMD ["python", "server.py"]
+CMD python server.py || { echo "Server failed to start, container kept alive for debugging" && tail -f /dev/null; }
