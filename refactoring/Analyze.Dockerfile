@@ -1,11 +1,17 @@
-FROM tensorflow/tensorflow:latest
+FROM python:3.8-slim
 
 WORKDIR /app
 
-COPY . /app
+# Copy only necessary files
+COPY ./recording/analyze.py /app/
 
-RUN pip install numpy librosa
+# Install minimal dependencies
+RUN pip install --no-cache-dir \
+    numpy \
+    librosa \
+    soundfile
 
+# Environment variables
 ENV RECS_DIR=/app/recordings
 ENV PROCESSED_DIR=/app/processed
 ENV LATITUDE=0
@@ -14,4 +20,4 @@ ENV SENSITIVITY=1.0
 ENV OVERLAP=0.0
 ENV MIN_CONF=0.1
 
-CMD ["python", "birdnet_analyzer.py"]
+CMD ["python", "analyze.py"]
