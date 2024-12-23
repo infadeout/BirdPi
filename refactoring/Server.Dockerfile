@@ -5,10 +5,12 @@ WORKDIR /app
 ARG MODEL_FILE=BirdNET_GLOBAL_6K_V2.4_Model_FP16.tflite
 ARG LABELS_FILE=labels_lang.txt
 ARG MODEL_DIR=/app/model
+ARG DB_DIR=/app/database
 ARG DEBIAN_FRONTEND=noninteractive
 
 ENV MODEL_PATH=${MODEL_DIR}/${MODEL_FILE}
 ENV LABELS_PATH=${MODEL_DIR}/${LABELS_FILE}
+ENV DB_PATH=${DB_DIR}/birds.db
 ENV PORT=5050
 ENV SERVER=0.0.0.0
 
@@ -16,17 +18,18 @@ ENV SERVER=0.0.0.0
 RUN apt-get update && apt-get install -y \
     python3-pip \
     libsndfile1 \
+    sqlite3 \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Create model directory
-RUN mkdir -p ${MODEL_DIR}
+# Create directories
+RUN mkdir -p ${MODEL_DIR} ${DB_DIR}
 
-# Copy server code
+# Copy server code and initialization
 COPY ./recording/server.py /app/
 COPY ./model/${MODEL_FILE} ${MODEL_PATH}
 COPY ./model/${LABELS_FILE} ${LABELS_PATH}
-
+COPY ./database/init.sql /app/
 
 # Install Python packages
 RUN pip install --no-cache-dir \
@@ -36,7 +39,9 @@ RUN pip install --no-cache-dir \
     soundfile \
     tzlocal
 
+# Initialize database
+RUN sqlite3 ${DB_PATH} < /app/init.sql
+
 EXPOSE ${PORT}
 
-#CMD ["python", "server.py"]
-CMD python server.py || { echo "Server failed to start, container kept alive for debugging" && tail -f /dev/null; }
+CMD ["python", "server.py"]

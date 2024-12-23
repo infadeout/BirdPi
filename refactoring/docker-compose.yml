@@ -33,25 +33,12 @@ services:
       dockerfile: Server.Dockerfile
     ports:
       - "5050:5050"
-    depends_on:
-      database:
-        condition: service_healthy
+    volumes:
+      - db-data:/app/database  # Database storage  
     healthcheck:
       test: ["CMD", "nc", "-z", "localhost", "5050"]
       interval: 30s
       timeout: 10s
-      retries: 3
-
-  database:
-    build:
-      context: .
-      dockerfile: Database.Dockerfile
-    volumes:
-      - db-data:/data
-    healthcheck:
-      test: ["CMD", "sqlite3", "/data/birds.db", "SELECT 1"]
-      interval: 30s
-      timeout: 3s
       retries: 3
 
 volumes:
