@@ -56,7 +56,9 @@ while True:
         if status:
             logging.warning(f"Stream callback status: {status}")
         vol_norm = np.linalg.norm(indata) * 10
-        print("|" * int(vol_norm))
+        if os.getenv('SHOW_LEVELS', 'false').lower() == 'true':
+            volume_norm = np.linalg.norm(indata) * 10
+            print('|' * int(volume_norm))
         audio_data.append(indata.copy())
 
     logging.info("Starting new recording session...")

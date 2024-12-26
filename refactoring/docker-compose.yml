@@ -17,17 +17,22 @@ services:
   analyzer:
     build:
       context: .
-      dockerfile: TensorFlow.Dockerfile
+      dockerfile: Analyze.Dockerfile
     volumes:
       - recordings:/app/recordings
       - processed:/app/processed
     environment:
-      - LATITUDE=${LATITUDE}
-      - LONGITUDE=${LONGITUDE}
+      - LATITUDE=0.0  # Set default value
+      - LONGITUDE=0.0 # Set default value
+      - SENSITIVITY=1.0
+      - OVERLAP=0.0
+      - MIN_CONF=0.1
+      - SHOW_LEVELS=false
     depends_on:
       - recording
 
   server:
+    hostname: server
     build:
       context: .
       dockerfile: Server.Dockerfile
@@ -35,6 +40,7 @@ services:
       - "5050:5050"
     volumes:
       - db-data:/app/database  # Database storage  
+      - recordings:/app/recordings:ro  # Add access to recordings
     healthcheck:
       test: ["CMD", "nc", "-z", "localhost", "5050"]
       interval: 30s

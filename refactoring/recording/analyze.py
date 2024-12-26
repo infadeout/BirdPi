@@ -27,7 +27,7 @@ class BirdNetAnalyzer:
             format='%(asctime)s [%(levelname)s] %(message)s'
         )
         
-        self.server_address = ('localhost', 5050)
+        self.server_address = ('server', 5050)
         
     def calculate_week(self):
         """Calculate week number (1-48) from current date"""
@@ -74,56 +74,55 @@ class BirdNetAnalyzer:
 
     def analyze_file(self, audio_file):
         """Run BirdNET analysis on a single file"""
-        week = self.calculate_week()
-        
-        cmd = [
-            'analyze.py',
-            '--i', audio_file,
-            '--o', f'{audio_file}.csv',
-            '--lat', str(self.latitude),
-            '--lon', str(self.longitude),
-            '--week', str(week),
-            '--sensitivity', str(self.sensitivity),
-            '--overlap', str(self.overlap),
-            '--min_conf', str(self.min_conf)
-        ]
-
-        if os.path.exists(self.include_list):
-            cmd.extend(['--include_list', self.include_list])
-        if os.path.exists(self.exclude_list):
-            cmd.extend(['--exclude_list', self.exclude_list])
-
         try:
-            subprocess.run(cmd, check=True)
-            logging.info(f"Analyzed {audio_file}")
-        except subprocess.CalledProcessError as e:
+            week = self.calculate_week()
+            logging.info(f"Analyzing file: {audio_file}")
+            
+            # Connect to server
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.connect(self.server_address)
+                logging.info(f"Connected to server at {self.server_address}")
+                
+                # Send parameters
+                params = f"{audio_file}||{self.latitude}||{self.longitude}||{week}||{self.sensitivity}"
+                s.send(params.encode('utf-8'))
+                logging.info("Sent analysis request")
+                
+                # Get response
+                response = s.recv(1024).decode('utf-8')
+                logging.info(f"Server response: {response}")
+                
+                return response == "SUCCESS"
+                
+        except Exception as e:
             logging.error(f"Analysis failed for {audio_file}: {e}")
+            return False
 
     def run(self):
         """Main analysis loop"""
-        self.wait_for_server()
-
         while True:
-            # Check StreamData directory
-            stream_dir = os.path.join(self.recs_dir, "StreamData")
-            if os.path.exists(stream_dir):
-                files = self.get_audio_files(stream_dir)
-                for f in files:
-                    self.analyze_file(f)
-                self.move_analyzed_files(files, os.path.join(stream_dir, "Analyzed"))
-
-            # Check today's directory
-            today_dir = os.path.join(
-                self.recs_dir,
-                datetime.now().strftime("%B-%Y/%d-%A")
-            )
-            if os.path.exists(today_dir):
-                files = self.get_audio_files(today_dir) 
-                for f in files:
-                    self.analyze_file(f)
-                self.move_analyzed_files(files, os.path.join(today_dir, "Analyzed"))
-
-            time.sleep(3)
+            try:
+                files = self.get_audio_files(self.recs_dir)
+                if files:
+                    logging.info(f"Found {len(files)} files to analyze")
+                    analyzed_files = []
+                    
+                    for f in files:
+                        if self.analyze_file(f):
+                            logging.info(f"Successfully analyzed {f}")
+                            analyzed_files.append(f)
+                        else:
+                            logging.error(f"Failed to analyze {f}")
+                    
+                    if analyzed_files:
+                        analyzed_dir = os.path.join(self.processed_dir, "Analyzed")
+                        self.move_analyzed_files(analyzed_files, analyzed_dir)
+                        
+                time.sleep(3)
+                
+            except Exception as e:
+                logging.error(f"Error in analysis loop: {e}")
+                time.sleep(5)
 
 if __name__ == "__main__":
     analyzer = BirdNetAnalyzer()
