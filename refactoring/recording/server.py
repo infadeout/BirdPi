@@ -153,9 +153,7 @@ def handle_client(conn, addr):
             detections = []
             for i, chunk in enumerate(chunks):
                 confidences = predict(chunk, sensitivity)
-                logging.info(f"Detected {confidences}
                 for i, conf in enumerate(confidences):
-                    
                     if conf > 0.1 and i < len(CLASSES):
                         species = CLASSES[i]
                         detections.append((species, conf))
