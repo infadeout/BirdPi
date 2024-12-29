@@ -1,237 +1,200 @@
-import os
-import logging
-import socket
-import sqlite3
-import numpy as np
-import librosa
-import threading
-from datetime import datetime
+import re
 from pathlib import Path
 from tzlocal import get_localzone
+import datetime
+import sqlite3
+import time
+import numpy as np
+import librosa
+import socket
+import threading
+import os
+import gzip
+import logging
+import traceback
 
-# Try to import TFLite runtime, fallback to TensorFlow Lite
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+os.environ['CUDA_VISIBLE_DEVICES'] = ''
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+
 try:
     import tflite_runtime.interpreter as tflite
-except ImportError:
+except BaseException:
     from tensorflow import lite as tflite
 
-class BirdNetServer:
-    def __init__(self):
-        # Server configuration
-        self.PORT = int(os.getenv('PORT', 5050))
-        self.SERVER = os.getenv('SERVER', '0.0.0.0')
-        self.HEADER = 64
-        self.FORMAT = 'utf-8'
-        self.DISCONNECT_MESSAGE = "!DISCONNECT"
-        
-        # Model paths and settings
-        self.MODEL_PATH = os.getenv('MODEL_PATH')
-        self.LABELS_PATH = os.getenv('LABELS_PATH')
-        self.DB_PATH = os.getenv('DB_PATH')
-        self.sample_rate = 48000
-        
-        # Configure logging
-        logging.basicConfig(
-            level=logging.INFO,
-            format='%(asctime)s [%(levelname)s] %(message)s'
-        )
-        
-        # Initialize components
-        self.interpreter = self._load_model()
-        self.labels = self._load_labels()
-        self._init_database()
-        
-        # Store model details
-        input_details = self.interpreter.get_input_details()
-        output_details = self.interpreter.get_output_details()
-        self.input_layer_index = input_details[0]['index']
-        self.output_layer_index = output_details[0]['index']
-        
-        # Create server socket
-        self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+# Constants
+HEADER = 64
+PORT = int(os.getenv('PORT', 5050))
+SERVER = os.getenv('SERVER', '0.0.0.0')
+ADDR = (SERVER, PORT)
+FORMAT = 'utf-8'
+DISCONNECT_MESSAGE = "!DISCONNECT"
+MODEL_PATH = os.getenv('MODEL_PATH')
+LABELS_PATH = os.getenv('LABELS_PATH')
+DB_PATH = os.getenv('DB_PATH', '/data/birds.db')
 
-    def run(self):
-        """Run the server"""
-        try:
-            self.server_socket.bind((self.SERVER, self.PORT))
-            self.server_socket.listen()
-            logging.info(f"Server listening on {self.SERVER}:{self.PORT}")
+# Global variables
+INTERPRETER = None
+CLASSES = []
+INPUT_LAYER_INDEX = None
+OUTPUT_LAYER_INDEX = None
+PREDICTED_SPECIES_LIST = []
+
+def splitSignal(sig, rate=48000, seconds=3.0):
+    """Split signal into chunks"""
+    sig_splits = []
+    for i in range(0, len(sig), int(seconds * rate)):
+        split = sig[i:i + int(seconds * rate)]
+        if len(split) < int(1.5 * rate):
+            break
+        if len(split) < int(rate * seconds):
+            temp = np.zeros((int(rate * seconds)))
+            temp[:len(split)] = split
+            split = temp
+        sig_splits.append(split)
+    return sig_splits
+
+def loadModel():
+    """Load TFLite model and labels"""
+    global INPUT_LAYER_INDEX, OUTPUT_LAYER_INDEX, CLASSES
+
+    print('LOADING MODEL...', end=' ', flush=True)
+    interpreter = tflite.Interpreter(model_path=MODEL_PATH, num_threads=2)
+    interpreter.allocate_tensors()
+
+    input_details = interpreter.get_input_details()
+    output_details = interpreter.get_output_details()
+    
+    # Debug model input requirements
+    input_shape = input_details[0]['shape']
+    print(f"Model expects input shape: {input_shape}")
+
+    INPUT_LAYER_INDEX = input_details[0]['index']
+    OUTPUT_LAYER_INDEX = output_details[0]['index']
+    
+    with open(LABELS_PATH, 'r') as f:
+        CLASSES = [line.strip() for line in f.readlines()]
+
+    print('DONE!')
+    return interpreter
+
+def predict(sample, sensitivity=1.0):
+    """Analyze audio sample"""
+    # Debug input shape
+    logging.info(f"Input audio shape: {sample.shape}")
+    
+    # Create spectrogram
+    spec = librosa.feature.melspectrogram(
+        y=sample, 
+        sr=48000, 
+        n_fft=2048, 
+        hop_length=1024, 
+        n_mels=40, 
+        fmin=50, 
+        fmax=15000
+    )
+    spec = librosa.power_to_db(spec, ref=np.max)
+    spec = (spec + 80) / 80
+    
+    logging.info(f"Spectrogram shape: {spec.shape}")
+    
+    # Reshape to match model input (1, 144000)
+    spec = np.reshape(sample, (1, -1)).astype('float32')
+    
+    logging.info(f"Final tensor shape: {spec.shape}")
+    
+    # Make prediction
+    INTERPRETER.set_tensor(INPUT_LAYER_INDEX, spec)
+    INTERPRETER.invoke()
+    prediction = INTERPRETER.get_tensor(OUTPUT_LAYER_INDEX)[0]
+
+    # Confidence adjustment
+    p_adj = []
+    for p in prediction:
+        p_adj.append(1.0 / (1.0 + np.exp(-sensitivity * (p - 0.5))))
+
+    return p_adj
+
+def handle_client(conn, addr):
+    """Handle client connection"""
+    logging.info(f"New connection from {addr}")
+
+    try:
+        while True:
+            msg = conn.recv(1024).decode(FORMAT)
+            if not msg or msg == DISCONNECT_MESSAGE:
+                break
+
+            # Parse parameters
+            params = msg.split('||')
+            audio_path = params[0]
+            sensitivity = float(params[4])
             
-            while True:
-                conn, addr = self.server_socket.accept()
-                thread = threading.Thread(
-                    target=self._handle_client, 
-                    args=(conn, addr)
-                )
-                thread.start()
-                logging.info(f"Active connections: {threading.active_count() - 1}")
-                
-        except Exception as e:
-            logging.error(f"Server error: {e}")
-            raise
+            logging.info(f"Processing file: {audio_path}")
 
-    def _handle_client(self, conn, addr):
-        """Handle client connection"""
-        logging.info(f"New connection from {addr}")
-        
-        try:
-            while True:
-                # Receive message
-                msg = conn.recv(1024).decode(self.FORMAT)
-                if not msg or msg == self.DISCONNECT_MESSAGE:
-                    break
-                    
-                # Parse parameters 
-                try:
-                    params = msg.split('||')
-                    audio_path = params[0]
-                    lat = float(params[1])
-                    lon = float(params[2]) 
-                    week = int(params[3])
-                    sensitivity = float(params[4])
-                    
-                    logging.info(f"Processing file: {audio_path}")
-                    
-                    # Process audio
-                    audio_data = self._load_audio(audio_path)
-                    detections = self._analyze_audio(audio_data, sensitivity)
-                    
-                    # Store results
-                    for species, confidence in detections:
-                        self._store_detection(species, confidence)
-                        
-                    # Send response
-                    conn.send("SUCCESS".encode(self.FORMAT))
-                    
-                except (ValueError, IndexError) as e:
-                    logging.error(f"Error parsing message: {e}")
-                    conn.send("ERROR".encode(self.FORMAT))
-                    
-        except Exception as e:
-            logging.error(f"Error handling client: {e}")
-            conn.send("ERROR".encode(self.FORMAT))
-        finally:
-            conn.close()
+            # Process audio
+            audio, sr = librosa.load(audio_path, sr=48000, mono=True)
+            chunks = splitSignal(audio)
+            
+            logging.info(f"Split audio into {len(chunks)} chunks")
 
-    def _load_model(self):
-        """Load TFLite model"""
-        logging.info(f"Loading model from {self.MODEL_PATH}")
-        interpreter = tflite.Interpreter(model_path=self.MODEL_PATH)
-        interpreter.allocate_tensors()
-        return interpreter
+            detections = []
+            for i, chunk in enumerate(chunks):
+                predictions = predict(chunk, sensitivity)
+                for i, conf in enumerate(predictions):
+                    if conf > 0.1:
+                        species = CLASSES[i]
+                        detections.append((species, conf))
+                        logging.info(f"Detected {species} with confidence {conf}")
 
-    def _load_labels(self):
-        """Load species labels"""
-        with open(self.LABELS_PATH, 'r') as f:
-            return [line.strip() for line in f.readlines()]
+            # Store results
+            conn_db = sqlite3.connect(DB_PATH)
+            c = conn_db.cursor()
+            timestamp = datetime.datetime.now().isoformat()
+            for species, confidence in detections:
+                c.execute("INSERT INTO detections VALUES (?, ?, ?, ?, ?, ?)", 
+                         (timestamp, species, confidence, None, None, None))
+            conn_db.commit()
+            conn_db.close()
+            
+            logging.info(f"Stored {len(detections)} detections")
+            conn.send("SUCCESS".encode(FORMAT))
 
-    def _init_database(self):
-        """Initialize SQLite database"""
-        conn = sqlite3.connect(self.DB_PATH)
-        c = conn.cursor()
-        c.execute('''CREATE TABLE IF NOT EXISTS detections
-                    (timestamp TEXT, species TEXT, confidence REAL,
-                     latitude REAL, longitude REAL, file_name TEXT)''')
-        conn.commit()
+    except Exception as e:
+        error_msg = f"Error processing request: {str(e)}\n{traceback.format_exc()}"
+        logging.error(error_msg)
+        conn.send("ERROR".encode(FORMAT))
+    finally:
         conn.close()
+        logging.info(f"Connection closed for {addr}")
 
-    def _load_audio(self, audio_path):
-        """Load and preprocess audio file"""
-        # Load audio file
-        audio, sr = librosa.load(audio_path, sr=self.sample_rate, mono=True)
+def start():
+    """Start server"""
+    global INTERPRETER
+    INTERPRETER = loadModel()
+    
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    
+    try:
+        server.bind(ADDR)
+    except:
+        print("Waiting on socket")
+        time.sleep(5)
         
-        # Split into 3-second chunks with overlap
-        chunks = self._split_signal(audio)
-        
-        return chunks
-
-    def _split_signal(self, sig, seconds=3.0, overlap=0.0):
-        """Split audio signal into chunks"""
-        chunks = []
-        chunk_samples = int(self.sample_rate * seconds)
-        hop_samples = int(chunk_samples * (1 - overlap))
-        
-        for i in range(0, len(sig), hop_samples):
-            chunk = sig[i:i + chunk_samples]
-            if len(chunk) < chunk_samples:
-                # Pad if needed
-                chunk = np.pad(chunk, (0, chunk_samples - len(chunk)))
-            chunks.append(chunk)
-            
-        return chunks
-
-    def _analyze_audio(self, chunks, sensitivity=1.0):
-        """Analyze audio chunks"""
-        detections = []
-        
-        for chunk in chunks:
-            # Create spectrogram
-            spec = self._audio_to_spectrogram(chunk)
-            
-            # Run inference
-            self.interpreter.set_tensor(self.input_layer_index, spec)
-            self.interpreter.invoke()
-            predictions = self.interpreter.get_tensor(self.output_layer_index)
-            
-            # Process predictions
-            for i, conf in enumerate(predictions[0]):
-                if conf > 0.1:  # Minimum confidence threshold
-                    species = self.labels[i]
-                    adjusted_conf = self._adjust_confidence(conf, sensitivity)
-                    detections.append((species, adjusted_conf))
-        
-        return detections
-
-    def _audio_to_spectrogram(self, audio):
-        """Convert audio to model input format for BirdNET"""
-        try:
-            import librosa
-            
-            # Convert to float32 and normalize
-            audio = audio.astype('float32')
-            audio = audio / np.max(np.abs(audio))
-
-            # Create mel spectrogram
-            mel_spec = librosa.feature.melspectrogram(
-                y=audio,
-                sr=48000,
-                n_fft=2048,
-                hop_length=1024,
-                n_mels=40,
-                fmin=50,
-                fmax=15000
-            )
-            
-            # Convert to log scale
-            mel_spec = librosa.power_to_db(mel_spec, ref=np.max)
-            
-            # Normalize
-            mel_spec = (mel_spec + 80) / 80
-            
-            # Remove extra dimension - model expects (freq_bins, time_steps)
-            mel_spec = mel_spec.astype('float32')
-            
-            return mel_spec
-            
-        except Exception as e:
-            logging.error(f"Error creating spectrogram: {e}")
-            raise
-
-    def _adjust_confidence(self, confidence, sensitivity):
-        """Apply sensitivity adjustment to confidence score"""
-        return 1.0 / (1.0 + np.exp(-sensitivity * (confidence - 0.5)))
-
-    def _store_detection(self, species, confidence):
-        """Store detection in database"""
-        conn = sqlite3.connect(self.DB_PATH)
-        c = conn.cursor()
-        timestamp = datetime.now().isoformat()
-        c.execute("INSERT INTO detections VALUES (?, ?, ?, ?, ?, ?)", 
-                 (timestamp, species, confidence, None, None, None))
-        conn.commit()
-        conn.close()
+    server.listen()
+    print(f"Server listening on {SERVER}:{PORT}")
+    
+    while True:
+        conn, addr = server.accept()
+        thread = threading.Thread(target=handle_client, args=(conn, addr))
+        thread.start()
 
 if __name__ == "__main__":
-    server = BirdNetServer()
-    server.run()
+    start()
