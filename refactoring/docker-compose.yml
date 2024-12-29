@@ -9,11 +9,11 @@ services:
     devices:
       - /dev/snd:/dev/snd
     environment:
-      - RECORDING_LENGTH=15
+      - RECORDING_LENGTH=30
       - SAMPLE_RATE=48000
       - FILENAME_FORMAT={date}-birdnet-{time}.wav
       - RECS_DIR=/app/recordings
-      - MAX_RECORDS=1  # Keep only 10 latest recordings
+      - MAX_RECORDS=5  # Keep only 10 latest recordings
   analyzer:
     build:
       context: .
@@ -22,8 +22,8 @@ services:
       - recordings:/app/recordings
       - processed:/app/processed
     environment:
-      - LATITUDE=0.0  # Set default value
-      - LONGITUDE=0.0 # Set default value
+      - LATITUDE=51.5072  # Set default value
+      - LONGITUDE=0.12 # Set default value
       - SENSITIVITY=1.0
       - OVERLAP=0.0
       - MIN_CONF=0.1
@@ -40,7 +40,7 @@ services:
       - "5050:5050"
     volumes:
       - db-data:/app/database  # Database storage  
-      - recordings:/app/recordings:ro  # Add access to recordings
+      - recordings:/app/recordings  # Add access to recordings
     healthcheck:
       test: ["CMD", "nc", "-z", "localhost", "5050"]
       interval: 30s

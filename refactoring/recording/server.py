@@ -86,8 +86,7 @@ def loadModel():
 
 def predict(sample, sensitivity=1.0):
     """Analyze audio sample"""
-    # Debug input shape
-    logging.info(f"Input audio shape: {sample.shape}")
+    global INTERPRETER, CLASSES
     
     # Create spectrogram
     spec = librosa.feature.melspectrogram(
@@ -114,12 +113,19 @@ def predict(sample, sensitivity=1.0):
     INTERPRETER.invoke()
     prediction = INTERPRETER.get_tensor(OUTPUT_LAYER_INDEX)[0]
 
-    # Confidence adjustment
-    p_adj = []
+    # Apply custom sigmoid for confidence adjustment
+    p_sigmoid = []
     for p in prediction:
-        p_adj.append(1.0 / (1.0 + np.exp(-sensitivity * (p - 0.5))))
-
-    return p_adj
+        p_sigmoid.append(1.0 / (1.0 + np.exp(-sensitivity * (p - 0.5))))
+    
+    # Create dictionary mapping species to confidence scores
+    p_labels = dict(zip(CLASSES, p_sigmoid))
+    
+    # Sort by confidence score
+    p_sorted = sorted(p_labels.items(), key=lambda x: x[1], reverse=True)
+    
+    # Return top 10 predictions
+    return p_sorted[:10]
 
 def handle_client(conn, addr):
     """Handle client connection"""
@@ -146,12 +152,15 @@ def handle_client(conn, addr):
 
             detections = []
             for i, chunk in enumerate(chunks):
-                predictions = predict(chunk, sensitivity)
-                for i, conf in enumerate(predictions):
-                    if conf > 0.1:
+                confidences = predict(chunk, sensitivity)
+                logging.info(f"Detected {confidences}
+                for i, conf in enumerate(confidences):
+                    
+                    if conf > 0.1 and i < len(CLASSES):
                         species = CLASSES[i]
                         detections.append((species, conf))
                         logging.info(f"Detected {species} with confidence {conf}")
+
 
             # Store results
             conn_db = sqlite3.connect(DB_PATH)
