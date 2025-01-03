@@ -27,6 +27,7 @@ RUN mkdir -p ${MODEL_DIR} ${DB_DIR}
 
 # Copy server code and initialization
 COPY ./recording/server.py /app/
+COPY ./recording/utils /app/utils
 COPY ./model/${MODEL_FILE} ${MODEL_PATH}
 COPY ./model/${LABELS_FILE} ${LABELS_PATH}
 COPY ./database/init.sql /app/
@@ -37,7 +38,8 @@ RUN pip install --no-cache-dir \
     librosa \
     tflite-runtime \
     soundfile \
-    tzlocal
+    tzlocal \
+    apprise
 
 # Initialize database
 RUN sqlite3 ${DB_PATH} < /app/init.sql
