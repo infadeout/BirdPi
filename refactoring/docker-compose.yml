@@ -22,14 +22,14 @@ services:
       - recordings:/app/recordings
       - processed:/app/processed
     environment:
-      - LATITUDE=51.5072  # Set default value
-      - LONGITUDE=0.12 # Set default value
+      - LATITUDE=-1  # Set default value
+      - LONGITUDE=-1 # Set default value
       - SENSITIVITY=1.0
       - OVERLAP=0.0
       - MIN_CONF=0.1
       - SHOW_LEVELS=false
-    depends_on:
-      - recording
+    # depends_on:
+    #   - recording
 
   server:
     hostname: server

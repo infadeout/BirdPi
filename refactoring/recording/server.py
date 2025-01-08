@@ -314,7 +314,7 @@ def analyzeAudioData(chunks, lat, lon, week, sensitivity, overlap,):
         pred_start = pred_end - overlap
 
     print('DONE! Time', int((time.time() - start) * 10) / 10.0, 'SECONDS')
-#    print('DETECTIONS:::::',detections)
+    # print('DETECTIONS:::::',detections)
     return detections
 
 
@@ -326,6 +326,9 @@ def writeResultsToFile(detections, min_conf, path):
         rfile.write('Start (s);End (s);Scientific name;Common name;Confidence\n')
         for d in detections:
             for entry in detections[d]:
+                if entry[1] >= 0.1:
+                    print(str(min_conf) + ';' + d + ';' + entry[0].replace('_', ';').split("/")[0] + ';' + str(entry[1]) + '\n')
+
                 if entry[1] >= min_conf and ((entry[0] in INCLUDE_LIST or len(INCLUDE_LIST) == 0)
                                              and (entry[0] not in EXCLUDE_LIST or len(EXCLUDE_LIST) == 0)
                                              and (entry[0] in PREDICTED_SPECIES_LIST or len(PREDICTED_SPECIES_LIST) == 0)):

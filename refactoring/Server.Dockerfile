@@ -4,7 +4,7 @@ WORKDIR /app
 
 ARG MODEL_FILE=BirdNET_GLOBAL_6K_V2.4_Model_FP16.tflite
 ARG MODEL_META_DATA_FILE=BirdNET_GLOBAL_6K_V2.4_MData_Model_FP16.tflite
-ARG LABELS_FILE=labels_lang.txt
+ARG LABELS_FILE=labels_en.txt
 ARG MODEL_DIR=/app/model
 ARG DB_DIR=/app/database
 ARG DEBIAN_FRONTEND=noninteractive
