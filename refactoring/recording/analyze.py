@@ -84,8 +84,15 @@ class BirdNetAnalyzer:
                 logging.info(f"Connected to server at {self.server_address}")
                 
                 # Send parameters
-                params = f"{audio_file}||{self.latitude}||{self.longitude}||{week}||{self.sensitivity}"
-                s.send(params.encode('utf-8'))
+                params = f"{audio_file}||{self.latitude}||{self.longitude}||{week}||{self.sensitivity}||{self.overlap}||{self.min_conf}"
+                message = params.encode('utf-8')
+                msg_length = len(params)
+                send_length = str(msg_length).encode('utf-8')
+                HEADER = 64
+                send_length += b' ' * (HEADER - len(send_length))
+                s.send(send_length)
+                s.send(message)
+
                 logging.info("Sent analysis request")
                 
                 # Get response

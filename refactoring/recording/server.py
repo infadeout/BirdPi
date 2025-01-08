@@ -21,7 +21,7 @@ from utils.parse_settings import config_to_settings
 
 # Configure logging
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S'
 )
@@ -202,7 +202,7 @@ def splitSignal(sig, rate, overlap, seconds=3.0, minlen=1.5):
 
 def readAudioData(path, overlap, sample_rate=48000):
 
-    print('READING AUDIO DATA...', end=' ', flush=True)
+    logger.info(f"Reading file: {path}")
 
     # Open file with librosa (uses ffmpeg or libav)
     sig, rate = librosa.load(path, sr=sample_rate, mono=True, res_type='kaiser_fast')
@@ -356,42 +356,19 @@ def handle_client(conn, addr):
 
         args = type('', (), {})()
 
-        args.i = ''
-        args.o = ''
+        params = msg.split('||')
+
+        args.i = params[0]
+        args.lat = float(params[1])
+        args.lon = float(params[2])
+        args.week = int(params[3])
+        args.sensitivity = float(params[4])
+        args.overlap = float(params[5])
+        args.min_conf = float(params[6])
         args.birdweather_id = '99999'
         args.include_list = 'null'
         args.exclude_list = 'null'
-        args.overlap = 0.0
-        args.week = -1
-        args.sensitivity = 1.25
-        args.min_conf = 0.70
-        args.lat = -1
-        args.lon = -1
-
-        for line in msg.split('||'):
-            inputvars = line.split('=')
-            if inputvars[0] == 'i':
-                args.i = inputvars[1]
-            elif inputvars[0] == 'o':
-                args.o = inputvars[1]
-            elif inputvars[0] == 'birdweather_id':
-                args.birdweather_id = inputvars[1]
-            elif inputvars[0] == 'include_list':
-                args.include_list = inputvars[1]
-            elif inputvars[0] == 'exclude_list':
-                args.exclude_list = inputvars[1]
-            elif inputvars[0] == 'overlap':
-                args.overlap = float(inputvars[1])
-            elif inputvars[0] == 'week':
-                args.week = int(inputvars[1])
-            elif inputvars[0] == 'sensitivity':
-                args.sensitivity = float(inputvars[1])
-            elif inputvars[0] == 'min_conf':
-                args.min_conf = float(inputvars[1])
-            elif inputvars[0] == 'lat':
-                args.lat = float(inputvars[1])
-            elif inputvars[0] == 'lon':
-                args.lon = float(inputvars[1])
+        args.o = '/app/recordings/output.csv'
 
         # Load custom species lists - INCLUDED and EXCLUDED
         if not args.include_list == 'null':
@@ -441,7 +418,7 @@ def handle_client(conn, addr):
         file_time = file_name.split('-birdnet-')[1]
         # Join the date and time together to get a complete string representing when the audio was recorded
         date_time_str = file_date + ' ' + file_time
-        date_time_obj = datetime.datetime.strptime(date_time_str, '%Y-%m-%d %H:%M:%S')
+        date_time_obj = datetime.datetime.strptime(date_time_str, '%Y-%m-%d %H-%M-%S')
         # print('Date:', date_time_obj.date())
         # print('Time:', date_time_obj.time())
         print('Date-time:', date_time_obj)
@@ -472,7 +449,7 @@ def handle_client(conn, addr):
         for i in detections:
             myReturn += str(i) + '-' + str(detections[i][0]) + '\n'
 
-        with open(userDir + '/BirdNET-Pi/BirdDB.txt', 'a') as rfile:
+        with open(args.o, 'a') as rfile:
             for d in detections:
                 species_apprised_this_run = []
                 for entry in detections[d]:
