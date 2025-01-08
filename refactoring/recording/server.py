@@ -14,9 +14,18 @@ import socket
 import threading
 import os
 import gzip
+import logging
 
 from utils.notifications import sendAppriseNotifications
 from utils.parse_settings import config_to_settings
+
+# Configure logging
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+logger = logging.getLogger(__name__)
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 os.environ['CUDA_VISIBLE_DEVICES'] = ''
@@ -28,32 +37,23 @@ except BaseException:
 
 
 HEADER = 64
-PORT = 5050
-SERVER = "localhost"
+PORT =  int(os.getenv("PORT", "5050")) 
+SERVER = os.getenv("SERVER", "NULL")
 ADDR = (SERVER, PORT)
 FORMAT = 'utf-8'
 DISCONNECT_MESSAGE = "!DISCONNECT"
 
 userDir = os.path.expanduser('~')
-DB_PATH = userDir + '/BirdNET-Pi/scripts/birds.db'
 
 PREDICTED_SPECIES_LIST = []
 
-server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-
-try:
-    server.bind(ADDR)
-except BaseException:
-    print("Waiting on socket")
-    time.sleep(5)
-
-
 audiofmt = os.getenv("AUDIOFMT", ".wav")
 priv_thresh = float(os.getenv("PRIVACY_THRESHOLD", "0.3"))
-model = os.getenv("MODEL", "BirdNET_6K_GLOBAL_MODEL")
+modelpath = os.getenv("MODEL_PATH", "NULL")
+metadatapath = os.getenv("MODEL_META_DATA_PATH","NULL")
+dbpath = os.getenv("DB_PATH", "NULL")
 sf_thresh = float(os.getenv("SF_THRESH", "0.03"))
-
+labelspath = os.getenv("LABELS_PATH", "NULL")
 
 def loadModel():
 
@@ -62,12 +62,18 @@ def loadModel():
     global MDATA_INPUT_INDEX
     global CLASSES
 
-    print('LOADING TF LITE MODEL...', end=' ')
+    logger.info("Starting model loading...")
+    logger.debug(f"Model path: {modelpath}")
+    logger.debug(f"Labels path: {labelspath}")
 
     # Load TFLite model and allocate tensors.
     # model will either be BirdNET_GLOBAL_6K_V2.4_Model_FP16 (new) or BirdNET_6K_GLOBAL_MODEL (old)
-    modelpath = userDir + '/BirdNET-Pi/model/'+model+'.tflite'
-    myinterpreter = tflite.Interpreter(model_path=modelpath, num_threads=2)
+    try:
+        myinterpreter = tflite.Interpreter(model_path=modelpath, num_threads=2)
+        logger.info("Model loaded successfully")
+    except Exception as e:
+        logger.error(f"Failed to load model: {str(e)}")
+        raise
     myinterpreter.allocate_tensors()
 
     # Get input and output tensors.
@@ -76,13 +82,13 @@ def loadModel():
 
     # Get input tensor index
     INPUT_LAYER_INDEX = input_details[0]['index']
-    if model == "BirdNET_6K_GLOBAL_MODEL":
-        MDATA_INPUT_INDEX = input_details[1]['index']
+    # if model == "BirdNET_6K_GLOBAL_MODEL":
+    #     MDATA_INPUT_INDEX = input_details[1]['index']
     OUTPUT_LAYER_INDEX = output_details[0]['index']
 
     # Load labels
     CLASSES = []
-    labelspath = userDir + '/BirdNET-Pi/model/labels.txt'
+    
     with open(labelspath, 'r') as lfile:
         for line in lfile.readlines():
             CLASSES.append(line.replace('\n', ''))
@@ -99,7 +105,7 @@ def loadMetaModel():
     global M_OUTPUT_LAYER_INDEX
 
     # Load TFLite model and allocate tensors.
-    M_INTERPRETER = tflite.Interpreter(model_path=userDir + '/BirdNET-Pi/model/BirdNET_GLOBAL_6K_V2.4_MData_Model_FP16.tflite')
+    M_INTERPRETER = tflite.Interpreter(model_path=metadatapath)
     M_INTERPRETER.allocate_tensors()
 
     # Get input and output tensors.
@@ -235,8 +241,8 @@ def predict(sample, sensitivity):
     global INTERPRETER
     # Make a prediction
     INTERPRETER.set_tensor(INPUT_LAYER_INDEX, np.array(sample[0], dtype='float32'))
-    if model == "BirdNET_6K_GLOBAL_MODEL":
-        INTERPRETER.set_tensor(MDATA_INPUT_INDEX, np.array(sample[1], dtype='float32'))
+    # if model == "BirdNET_6K_GLOBAL_MODEL":
+        # INTERPRETER.set_tensor(MDATA_INPUT_INDEX, np.array(sample[1], dtype='float32'))
     INTERPRETER.invoke()
     prediction = INTERPRETER.get_tensor(OUTPUT_LAYER_INDEX)[0]
 
@@ -271,9 +277,9 @@ def analyzeAudioData(chunks, lat, lon, week, sensitivity, overlap,):
     start = time.time()
     print('ANALYZING AUDIO...', end=' ', flush=True)
 
-    if model == "BirdNET_GLOBAL_6K_V2.4_Model_FP16":
-        if len(PREDICTED_SPECIES_LIST) == 0 or len(INCLUDE_LIST) != 0:
-            predictSpeciesList(lat, lon, week)
+    # if model == "BirdNET_GLOBAL_6K_V2.4_Model_FP16":
+    if len(PREDICTED_SPECIES_LIST) == 0 or len(INCLUDE_LIST) != 0:
+        predictSpeciesList(lat, lon, week)
 
     # Convert and prepare metadata
     mdata = convertMetadata(np.array([lat, lon, week]))
@@ -332,7 +338,7 @@ def writeResultsToFile(detections, min_conf, path):
 def handle_client(conn, addr):
     global INCLUDE_LIST
     global EXCLUDE_LIST
-    # print(f"[NEW CONNECTION] {addr} connected.")
+    logger.info(f"New connection from {addr}")
 
     while True:
         msg_length = conn.recv(HEADER).decode(FORMAT)
@@ -498,7 +504,7 @@ def handle_client(conn, addr):
                         # Connect to SQLite Database
                         for attempt_number in range(3):
                             try:
-                                con = sqlite3.connect(DB_PATH)
+                                con = sqlite3.connect(dbpath)
                                 cur = con.cursor()
                                 cur.execute("INSERT INTO detections VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (Date, Time,
                                             Sci_Name, Com_Name, str(score), Lat, Lon, Cutoff, Week, Sens, Overlap, File_Name))
@@ -589,10 +595,10 @@ def handle_client(conn, addr):
                                 post_commonName = "\"commonName\": \"" + entry[0].split('_')[1].split("/")[0] + "\","
                                 post_scientificName = "\"scientificName\": \"" + entry[0].split('_')[0] + "\","
 
-                                if model == "BirdNET_GLOBAL_6K_V2.4_Model_FP16":
-                                    post_algorithm = "\"algorithm\": " + "\"2p4\"" + ","
-                                else:
-                                    post_algorithm = "\"algorithm\": " + "\"alpha\"" + ","
+                                # if model == "BirdNET_GLOBAL_6K_V2.4_Model_FP16":
+                                post_algorithm = "\"algorithm\": " + "\"2p4\"" + ","
+                                # else:
+                                #     post_algorithm = "\"algorithm\": " + "\"alpha\"" + ","
 
                                 post_confidence = "\"confidence\": " + str(entry[1])
                                 post_end = " }"
@@ -614,14 +620,22 @@ def handle_client(conn, addr):
 def start():
     # Load model
     global INTERPRETER, INCLUDE_LIST, EXCLUDE_LIST
+    logger.info("Server starting...")
     INTERPRETER = loadModel()
+    logger.info("Model initialization complete")
+
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    logger.debug(f"Server binding to : {PORT}")
+    server.bind(ADDR)
     server.listen()
-    # print(f"[LISTENING] Server is listening on {SERVER}")
+    logger.info(f"Server listening on {SERVER}:{PORT}")
+
     while True:
         conn, addr = server.accept()
         thread = threading.Thread(target=handle_client, args=(conn, addr))
         thread.start()
-        # print(f"[ACTIVE CONNECTIONS] {threading.activeCount() - 1}")
+        logger.info(f"[ACTIVE CONNECTIONS] {threading.activeCount() - 1}")
 
 
 # print("[STARTING] server is starting...")

@@ -3,12 +3,14 @@ FROM --platform=linux/arm64/v8 python:3.8-slim-buster
 WORKDIR /app
 
 ARG MODEL_FILE=BirdNET_GLOBAL_6K_V2.4_Model_FP16.tflite
+ARG MODEL_META_DATA_FILE=BirdNET_GLOBAL_6K_V2.4_MData_Model_FP16.tflite
 ARG LABELS_FILE=labels_lang.txt
 ARG MODEL_DIR=/app/model
 ARG DB_DIR=/app/database
 ARG DEBIAN_FRONTEND=noninteractive
 
 ENV MODEL_PATH=${MODEL_DIR}/${MODEL_FILE}
+ENV MODEL_META_DATA_PATH=${MODEL_DIR}/${MODEL_META_DATA_FILE}
 ENV LABELS_PATH=${MODEL_DIR}/${LABELS_FILE}
 ENV DB_PATH=${DB_DIR}/birds.db
 ENV PORT=5050
@@ -29,6 +31,7 @@ RUN mkdir -p ${MODEL_DIR} ${DB_DIR}
 COPY ./recording/server.py /app/
 COPY ./recording/utils /app/utils
 COPY ./model/${MODEL_FILE} ${MODEL_PATH}
+COPY ./model/${MODEL_META_DATA_FILE} ${MODEL_META_DATA_PATH}
 COPY ./model/${LABELS_FILE} ${LABELS_PATH}
 COPY ./database/init.sql /app/
 

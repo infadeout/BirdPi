@@ -77,7 +77,7 @@ class BirdNetAnalyzer:
         try:
             week = self.calculate_week()
             logging.info(f"Analyzing file: {audio_file}")
-            
+            logging.info(f"Connecting to server at {self.server_address}")  
             # Connect to server
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.connect(self.server_address)
